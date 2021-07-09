@@ -2,13 +2,12 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -26,6 +25,7 @@ func main() {
 	version := flag.Bool("version", false, "prints application version")
 	debug := flag.Bool("debug", false, "debug log")
 	auth := flag.Bool("authorize", false, "authorizes and creates a token to be used by the application")
+	ws := flag.Bool("websocket", false, "use streaming websocket to fetch games")
 	flag.Parse()
 
 	logrus.SetFormatter(&logrus.TextFormatter{})
@@ -57,11 +57,24 @@ func main() {
 		return
 	}
 
+	if *ws {
+		// if err := websocket.OGSWebSocket(); err != nil {
+		// 	logrus.Error(err)
+		// 	return
+		// }
+	}
+
 	_, err := getChallenges()
 	if err != nil {
 		logrus.Error(err)
 		return
 	}
+}
+
+func socketGetChallenges() (string, error) {
+
+	// 'https://online-go.com/socket.io', transports='websocket'
+	return "", nil
 }
 
 func getChallenges() (string, error) {
@@ -87,14 +100,6 @@ func getChallenges() (string, error) {
 	return "", nil
 }
 
-type tokenRequest struct {
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	GrantType    string `json:"grant_type"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-}
-
 func postAuthorize() (string, error) {
 	reader := bufio.NewReader(os.Stdin)
 
@@ -112,28 +117,22 @@ func postAuthorize() (string, error) {
 	}
 	password = strings.Replace(password, "\n", "", -1)
 
-	tokenRequest := &tokenRequest{
-		ClientID:     OAuthClientID,
-		ClientSecret: OAuthClientSecret,
-		GrantType:    "password",
-		Username:     username,
-		Password:     password,
-	}
-	b, err := json.Marshal(tokenRequest)
-	if err != nil {
-		return "", errors.New("could not marshal request: " + err.Error())
-	}
+	data := url.Values{}
+	data.Set("client_id", OAuthClientID)
+	data.Set("client_secret", OAuthClientSecret)
+	data.Set("grant_type", "password")
+	data.Set("username", username)
+	data.Set("password", password)
 
-	req, _ := http.NewRequest(http.MethodPost, "https://online-go.com/oauth2/token/", bytes.NewBuffer(b))
-	req.Header.Add("Content-Type", "application/json")
+	req, _ := http.NewRequest(http.MethodPost, "https://online-go.com/oauth2/token/", strings.NewReader(data.Encode()))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	logrus.WithFields(logrus.Fields{
-		"body":    string(b),
+		"body":    data,
 		"headers": req.Header,
 	}).Debug("POST token request")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 
 	if err != nil {
 		return "", errors.New("error sending request: " + err.Error())
