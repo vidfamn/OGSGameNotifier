@@ -2,29 +2,33 @@ package main
 
 import (
 	"bufio"
-	"errors"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/vidfamn/OGSGameNotifier/internal/api"
+	"github.com/vidfamn/OGSGameNotifier/internal/websocket"
 )
 
 var (
-	Application       string = "OGSGameNotifier"
+	Application string = "OGSGameNotifier"
+
+	// Overridden at compile time on make build
 	Version           string = "dev"
-	OAuthClientID            = "dev"
-	OAuthClientSecret        = "dev"
+	OAuthClientID     string = "dev"
+	OAuthClientSecret string = "dev"
+
+	authorizationFile string = ".authorization"
 )
 
 func main() {
 	version := flag.Bool("version", false, "prints application version")
 	debug := flag.Bool("debug", false, "debug log")
-	auth := flag.Bool("authorize", false, "authorizes and creates a token to be used by the application")
+	authorize := flag.Bool("authorize", false, "creates and stores authorization to be used by the application")
 	ws := flag.Bool("websocket", false, "use streaming websocket to fetch games")
 	flag.Parse()
 
@@ -42,113 +46,124 @@ func main() {
 		return
 	}
 
-	if *auth {
-		token, err := postAuthorize()
+	if *authorize {
+		reader := bufio.NewReader(os.Stdin)
+
+		fmt.Print("username: ")
+		username, err := reader.ReadString('\n')
+		if err != nil {
+			logrus.WithField("error", err).Error("could not read input")
+			return
+		}
+		username = strings.Replace(username, "\n", "", -1)
+
+		fmt.Print("password: ")
+		password, err := reader.ReadString('\n')
+		if err != nil {
+			logrus.WithField("error", err).Error("could not read input")
+			return
+		}
+		password = strings.Replace(password, "\n", "", -1)
+
+		authResponse, err := api.PostAuthorize(username, password, OAuthClientID, OAuthClientSecret)
 		if err != nil {
 			logrus.Error(err)
 			return
 		}
 
-		filename := ".token"
+		b, _ := json.Marshal(authResponse)
+
+		if err := ioutil.WriteFile(authorizationFile, b, 0644); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"authorization":      authResponse,
+				"authorization_file": authorizationFile,
+			}).Error("could not write file")
+			return
+		}
+
 		logrus.WithFields(logrus.Fields{
-			"token": token,
-			"file":  filename,
+			"authorization":      authResponse,
+			"authorization_file": authorizationFile,
 		}).Info("created and stored authorization token in file")
 		return
 	}
 
-	if *ws {
-		// if err := websocket.OGSWebSocket(); err != nil {
-		// 	logrus.Error(err)
-		// 	return
-		// }
-	}
-
-	_, err := getChallenges()
+	b, err := ioutil.ReadFile(authorizationFile)
 	if err != nil {
-		logrus.Error(err)
+		logrus.WithFields(logrus.Fields{
+			"authorization_file": authorizationFile,
+			"error":              err,
+		}).Error("could not read file, see --help")
 		return
 	}
-}
 
-func socketGetChallenges() (string, error) {
-
-	// 'https://online-go.com/socket.io', transports='websocket'
-	return "", nil
-}
-
-func getChallenges() (string, error) {
-	req, _ := http.NewRequest(http.MethodGet, "https://online-go.com/api/v1/challenges/", nil)
-	logrus.Debug("GET challenges request")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", errors.New("could not get challenges: " + err.Error())
-	}
-
-	respBody, _ := ioutil.ReadAll(resp.Body)
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("unexpected response, status: %s, body: %s", resp.Status, respBody)
+	auth := &api.PostAuthorizeResponse{}
+	if err := json.Unmarshal(b, auth); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"authorization_file": authorizationFile,
+			"error":              err,
+		}).Error("could not unmarshal json")
+		return
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"status": resp.Status,
-		"body":   string(respBody),
-	}).Debug("GET challenges response")
+		"authorization": auth,
+	}).Debug("found stored .authorization file")
 
-	return "", nil
-}
-
-func postAuthorize() (string, error) {
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Print("username: ")
-	username, err := reader.ReadString('\n')
-	if err != nil {
-		return "", errors.New("could not read input: " + err.Error())
-	}
-	username = strings.Replace(username, "\n", "", -1)
-
-	fmt.Print("password: ")
-	password, err := reader.ReadString('\n')
-	if err != nil {
-		return "", errors.New("could not read input: " + err.Error())
-	}
-	password = strings.Replace(password, "\n", "", -1)
-
-	data := url.Values{}
-	data.Set("client_id", OAuthClientID)
-	data.Set("client_secret", OAuthClientSecret)
-	data.Set("grant_type", "password")
-	data.Set("username", username)
-	data.Set("password", password)
-
-	req, _ := http.NewRequest(http.MethodPost, "https://online-go.com/oauth2/token/", strings.NewReader(data.Encode()))
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-	logrus.WithFields(logrus.Fields{
-		"body":    data,
-		"headers": req.Header,
-	}).Debug("POST token request")
-
-	resp, err := http.DefaultClient.Do(req)
-
-	if err != nil {
-		return "", errors.New("error sending request: " + err.Error())
+	if *ws {
+		if err := websocket.OGSWebSocket(auth.AccessToken); err != nil {
+			logrus.Error(err)
+			return
+		}
 	}
 
-	defer resp.Body.Close()
-	respBody, _ := ioutil.ReadAll(resp.Body)
+	// players, err := api.GetPlayers()
+	// if err != nil {
+	// 	logrus.Error(err)
+	// 	return
+	// }
 
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("unexpected response, status: %s, body: %s", resp.Status, respBody)
-	}
+	// db, err := memdb.NewMemDB(storage.Schema())
+	// if err != nil {
+	// 	logrus.Error(err)
+	// 	return
+	// }
 
-	logrus.WithFields(logrus.Fields{
-		"status": resp.Status,
-		"body":   string(respBody),
-	}).Debug("POST token response")
+	// txn := db.Txn(true)
+	// for _, p := range players {
+	// 	if err := txn.Insert("player", p); err != nil {
+	// 		logrus.WithFields(logrus.Fields{
+	// 			"player": p,
+	// 			"error":  err,
+	// 		}).Warn("could not store player")
+	// 		continue
+	// 	} else {
+	// 		logrus.WithFields(logrus.Fields{
+	// 			"player": p,
+	// 		}).Debug("stored player in memdb")
+	// 	}
+	// }
+	// txn.Commit()
 
-	return "", nil
+	// txn = db.Txn(false)
+	// it, err := txn.Get("player", "ratings.overall.rating")
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// fmt.Println("All the players:")
+	// for obj := it.Next(); obj != nil; obj = it.Next() {
+	// 	p := obj.(*api.Player)
+	// 	logrus.WithFields(logrus.Fields{
+	// 		"ID":       p.ID,
+	// 		"Username": p.Username,
+	// 		"Rating":   p.Ratings.Overall.Rating,
+	// 	}).Info("found player")
+	// }
+
+	// _, err = getChallenges()
+	// if err != nil {
+	// 	logrus.Error(err)
+	// 	return
+	// }
 }

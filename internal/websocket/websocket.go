@@ -2,82 +2,130 @@ package websocket
 
 import (
 	"errors"
-	"flag"
-	"log"
-	"net/url"
+	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/gorilla/websocket"
+	gosocketio "github.com/ambelovsky/gosf-socketio"
+	"github.com/ambelovsky/gosf-socketio/transport"
 	"github.com/sirupsen/logrus"
 )
 
-func OGSWebSocket() error {
-	flag.Parse()
-	log.SetFlags(0)
+func OGSWebSocket(token string) error {
+	var clockDrift, clockLatency float64 = 0, 0
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-
-	u := url.URL{
-		Scheme: "wss",
-		Host:   "online-go.com",
-		Path:   "/socket.io?transport=ws",
-	}
-	log.Printf("connecting to %s", u.String())
-
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	c, err := gosocketio.Dial(
+		gosocketio.GetUrl("online-go.com", 443, true),
+		transport.GetDefaultWebsocketTransport(),
+	)
 	if err != nil {
-		return errors.New("connect error: " + err.Error())
+		return errors.New("could not connect websocket: " + err.Error())
 	}
-	defer c.Close()
 
-	done := make(chan struct{})
+	c.On(gosocketio.OnConnection, func(c *gosocketio.Channel) {
+		logrus.WithFields(logrus.Fields{
+			"id": c.Id(),
+		}).Debug("websocket connected")
+	})
 
-	go func() {
-		defer close(done)
-		for {
-			_, message, err := c.ReadMessage()
-			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"error": err,
-				}).Error("websocket read error")
-				return
-			}
+	c.On(gosocketio.OnDisconnection, func(c *gosocketio.Channel) {
+		logrus.WithFields(logrus.Fields{
+			"id": c.Id(),
+		}).Debug("websocket disconnected")
 
-			logrus.WithFields(logrus.Fields{
-				"message": message,
-			}).Debug("websocket received")
-		}
-	}()
+		os.Interrupt.Signal()
+	})
 
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	c.On(gosocketio.OnError, func(c *gosocketio.Channel) {
+		logrus.WithFields(logrus.Fields{
+			"id":    c.Id(),
+			"error": err,
+		}).Error("websocket error")
+	})
+
+	c.On("gamelist-count", func(ch *gosocketio.Channel, msg gameListCountResponse) {
+		logrus.WithFields(logrus.Fields{
+			"method":  "gamelist-count",
+			"message": fmt.Sprintf("%+v", msg),
+		}).Debug("received message")
+	})
+
+	c.On("net/pong", func(ch *gosocketio.Channel, msg pongResponse) {
+		logrus.WithFields(logrus.Fields{
+			"method":  "net/pong",
+			"message": fmt.Sprintf("%+v", msg),
+		}).Debug("received message")
+
+		nowMs := time.Now().UnixNano() / int64(time.Millisecond)
+		latencyMs := nowMs - msg.Client
+		driftMs := (nowMs - latencyMs/2) - msg.Server
+
+		clockLatency = float64(latencyMs) / 1000
+		clockDrift = float64(driftMs) / 1000
+	})
+
+	pingTicker := time.NewTicker(25 * time.Second)
+	defer pingTicker.Stop()
+
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	for {
 		select {
-		case <-done:
-			return nil
-		case t := <-ticker.C:
-			err := c.WriteMessage(websocket.TextMessage, []byte(t.String()))
-			if err != nil {
-				return errors.New("websocket write error: " + err.Error())
+		case <-pingTicker.C:
+			msg := &pingRequest{
+				Client:  time.Now().UnixNano() / int64(time.Millisecond),
+				Drift:   clockDrift,
+				Latency: clockLatency,
 			}
-		case <-interrupt:
-			log.Println("interrupt")
 
-			// Cleanly close the connection by sending a close message and then
-			// waiting (with timeout) for the server to close the connection.
-			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			if err != nil {
-				return errors.New("websocket close error: " + err.Error())
+			logrus.WithFields(logrus.Fields{
+				"method":  "net/ping",
+				"message": msg,
+				"id":      c.Id(),
+			}).Debug("sending message")
+
+			if err := c.Emit("net/ping", msg); err != nil {
+				logrus.WithError(err).Error("could not emit event")
 			}
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-			}
+
+		case <-done:
+			c.Close()
 			return nil
 		}
+	}
+}
+
+type GameListQueryRequest struct {
+	List    string                 `json:"list"`
+	SortBy  string                 `json:"sort_by"`
+	Where   map[string]interface{} `json:"where"`
+	From    int                    `json:"from"`
+	Limit   int                    `json:"limit"`
+	Channel string                 `json:"channel"`
+}
+
+func SendGameListQuery(ch *gosocketio.Channel, msg *GameListQueryRequest) error {
+	logrus.WithFields(logrus.Fields{
+		"method":  "gamelist/query",
+		"message": fmt.Sprintf("%+v", msg),
+	}).Debug("sending message")
+
+	return ch.Emit("gamelist/query", msg)
+}
+
+func SendGameListCountSubscribe(ch *gosocketio.Channel) {
+	logrus.WithFields(logrus.Fields{
+		"method":  "gamelist/count/subscribe",
+		"message": "",
+	}).Debug("sending message")
+
+	if err := ch.Emit("gamelist/count/subscribe", ""); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"method": "gamelist/count/subscribe",
+			"error":  err,
+		}).Error("could not send message")
 	}
 }
