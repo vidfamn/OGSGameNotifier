@@ -1,82 +1,85 @@
 package websocket
 
+// Events
+
+const (
+	GameListCountEvent string = "gamelist-count"
+)
+
 // Responses
 
-type gameListCountResponse struct {
+type GameListCountResponse struct {
 	Live           string `json:"live"`
 	Correspondence string `json:"correspondence"`
 }
 
-type pongResponse struct {
+type PongResponse struct {
 	Client int64 `json:"client"`
 	Server int64 `json:"server"`
 }
 
-// {
-// 	"list":"live",
-// 	"by":"rank",
-// 	"size":136,
-// 	"where":null,
-// 	"from":0,
-// 	"limit":9,
-// 	"results": [
-// 		{
-// 			"id":35307427,
-// 			"group_ids":[],
-// 			"phase":"play",
-// 			"name":"Fast",
-// 			"player_to_move":872803,
-// 			"width":19,
-// 			"height":19,
-// 			"move_number":189,
-// 			"paused":0,
-// 			"private":false,
-// 			"black":{
-// 				"username":"eigenX",
-// 				"id":872803,
-// 				"rank":32.18607724253454,
-// 				"professional":false,
-// 				"accepted":false,
-// 				"ratings":{
-// 					"version":5,
-// 					"overall":{
-// 						"rating":2108.486295000427,
-// 						"deviation":65.7108266877671,
-// 						"volatility":0.05998657883830825
-// 					}
-// 				}
-// 			},
-// 			"white":{
-// 				"username":"katago-micro",
-// 				"id":902691,
-// 				"rank":38.146915580496284,
-// 				"professional":false,
-// 				"accepted":false,
-// 				"ratings":{
-// 					"version":5,
-// 					"overall":{
-// 						"rating":2727.697676636648,
-// 						"deviation":68.98075614493769,
-// 						"volatility":0.0600185792853173
-// 					}
-// 				}
-// 			},
-// 			"time_per_move":21,
-// 			"ranked":false,
-// 			"handicap":10,
-// 			"komi":0.5,
-// 			"bot_game":true,
-// 			"in_beginning":false,
-// 			"in_middle":false,
-// 			"in_end":true,
-// 			"group_ids_map":{}
-// 		},
-// 	],
-// }
+type GameListQueryResponse struct {
+	List    string                 `json:"list"` // live, correspondence
+	By      string                 `json:"by"`   // rank
+	Size    int                    `json:"size"`
+	Where   map[string]interface{} `json:"where"`
+	From    int                    `json:"from"`
+	Limit   int                    `json:"limit"`
+	Results []*Game                `json:"results"`
+}
+
+type Game struct {
+	ID           int64       `json:"id"`
+	GroupIDs     []int64     `json:"group_ids"`
+	Phase        string      `json:"phase"` // play
+	Name         string      `json:"name"`  // fast
+	PlayerToMove int64       `json:"player_to_move"`
+	Width        int         `json:"width"`  // 19
+	Height       int         `json:"height"` // 19
+	MoveNumber   int         `json:"move_number"`
+	Paused       int         `json:"paused"`
+	Private      bool        `json:"private"`
+	Black        *Player     `json:"black"`
+	White        *Player     `json:"white"`
+	TimePerMove  int         `json:"time_per_move"`
+	Ranked       bool        `json:"ranked"`
+	Handicap     int         `json:"handicap"`
+	Komi         float32     `json:"komi"`
+	BotGame      bool        `json:"bot_game"`
+	InBeginning  bool        `json:"in_beginning"`
+	InMiddle     bool        `json:"in_middle"`
+	InEnd        bool        `json:"in_end"`
+	GroupIDsMap  interface{} `json:"group_ids_map"` // FIXME: Add proper type
+}
+
+type Player struct {
+	ID           int64   `json:"id"`
+	Username     string  `json:"username"`
+	Rank         float64 `json:"rank"`
+	Professional bool    `json:"professional"`
+	Accepted     bool    `json:"accepted"`
+	Ratings      struct {
+		Version int64 `json:"version"`
+		Overall struct {
+			Rating     float64 `json:"rating"`
+			Deviation  float64 `json:"deviation"`
+			Volatility float64 `json:"volatility"`
+		} `json:"overall"`
+	} `json:"ratings"`
+}
 
 // Requests
 
-type pingRequest struct {
+type GameListQueryRequest struct {
+	List    string                 `json:"list"`    // live, correspondence
+	SortBy  string                 `json:"sort_by"` // rank
+	Where   map[string]interface{} `json:"where"`   // FIXME: Use proper type
+	From    int                    `json:"from"`
+	Limit   int                    `json:"limit"`
+	Channel string                 `json:"channel"`
+}
+
+type PingRequest struct {
 	Client  int64   `json:"client"`
 	Drift   float64 `json:"drift"`
 	Latency float64 `json:"latency"`

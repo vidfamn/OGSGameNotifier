@@ -7,11 +7,17 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
+
+	"github.com/hashicorp/go-memdb"
+	"github.com/vidfamn/OGSGameNotifier/internal/rest"
+	"github.com/vidfamn/OGSGameNotifier/internal/storage"
+	"github.com/vidfamn/OGSGameNotifier/internal/websocket"
 
 	"github.com/sirupsen/logrus"
-	"github.com/vidfamn/OGSGameNotifier/internal/api"
-	"github.com/vidfamn/OGSGameNotifier/internal/websocket"
 )
 
 var (
@@ -29,7 +35,6 @@ func main() {
 	version := flag.Bool("version", false, "prints application version")
 	debug := flag.Bool("debug", false, "debug log")
 	authorize := flag.Bool("authorize", false, "creates and stores authorization to be used by the application")
-	ws := flag.Bool("websocket", false, "use streaming websocket to fetch games")
 	flag.Parse()
 
 	logrus.SetFormatter(&logrus.TextFormatter{})
@@ -65,7 +70,7 @@ func main() {
 		}
 		password = strings.Replace(password, "\n", "", -1)
 
-		authResponse, err := api.PostAuthorize(username, password, OAuthClientID, OAuthClientSecret)
+		authResponse, err := rest.PostAuthorize(username, password, OAuthClientID, OAuthClientSecret)
 		if err != nil {
 			logrus.Error(err)
 			return
@@ -97,7 +102,7 @@ func main() {
 		return
 	}
 
-	auth := &api.PostAuthorizeResponse{}
+	auth := &rest.PostAuthorizeResponse{}
 	if err := json.Unmarshal(b, auth); err != nil {
 		logrus.WithFields(logrus.Fields{
 			"authorization_file": authorizationFile,
@@ -110,60 +115,78 @@ func main() {
 		"authorization": auth,
 	}).Debug("found stored .authorization file")
 
-	if *ws {
-		if err := websocket.OGSWebSocket(auth.AccessToken); err != nil {
-			logrus.Error(err)
-			return
-		}
+	client, err := websocket.NewOGSWebSocket(auth.AccessToken)
+	if err != nil {
+		logrus.Error(err)
+		return
 	}
 
-	// players, err := api.GetPlayers()
-	// if err != nil {
-	// 	logrus.Error(err)
-	// 	return
-	// }
+	gameListResponse, err := client.GameListRequest(&websocket.GameListQueryRequest{
+		List:   "live",
+		SortBy: "rank",
+		Where:  map[string]interface{}{},
+		From:   0,
+		Limit:  100,
+	}, time.Second*30)
+	if err != nil {
+		logrus.Error(err)
+		return
+	}
 
-	// db, err := memdb.NewMemDB(storage.Schema())
-	// if err != nil {
-	// 	logrus.Error(err)
-	// 	return
-	// }
+	db, err := memdb.NewMemDB(storage.Schema())
+	if err != nil {
+		logrus.Error(err)
+		return
+	}
 
-	// txn := db.Txn(true)
-	// for _, p := range players {
-	// 	if err := txn.Insert("player", p); err != nil {
-	// 		logrus.WithFields(logrus.Fields{
-	// 			"player": p,
-	// 			"error":  err,
-	// 		}).Warn("could not store player")
-	// 		continue
-	// 	} else {
-	// 		logrus.WithFields(logrus.Fields{
-	// 			"player": p,
-	// 		}).Debug("stored player in memdb")
-	// 	}
-	// }
-	// txn.Commit()
+	txn := db.Txn(true)
+	for _, game := range gameListResponse.Results {
+		if err := txn.Insert("game", game); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"game_id": game.ID,
+				"error":   err,
+			}).Warn("could not store in memdb")
+			continue
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"game":         game.ID,
+				"white_rating": game.White.Ratings.Overall.Rating,
+				"black_rating": game.Black.Ratings.Overall.Rating,
+			}).Debug("stored in memdb")
+		}
+	}
+	txn.Commit()
 
-	// txn = db.Txn(false)
-	// it, err := txn.Get("player", "ratings.overall.rating")
-	// if err != nil {
-	// 	panic(err)
-	// }
+	txn = db.Txn(false)
+	it, err := txn.LowerBound("game", "white.ratings.overall.rating", float64(2000))
+	if err != nil {
+		panic(err)
+	}
 
-	// fmt.Println("All the players:")
-	// for obj := it.Next(); obj != nil; obj = it.Next() {
-	// 	p := obj.(*api.Player)
-	// 	logrus.WithFields(logrus.Fields{
-	// 		"ID":       p.ID,
-	// 		"Username": p.Username,
-	// 		"Rating":   p.Ratings.Overall.Rating,
-	// 	}).Info("found player")
-	// }
+	for obj := it.Next(); obj != nil; obj = it.Next() {
+		game := obj.(*websocket.Game)
+		logrus.WithFields(logrus.Fields{
+			"id":           game.ID,
+			"white_rating": game.White.Ratings.Overall.Rating,
+			"white_name":   game.White.Username,
+		}).Info("found player")
+	}
 
-	// _, err = getChallenges()
-	// if err != nil {
-	// 	logrus.Error(err)
-	// 	return
-	// }
+	it, err = txn.LowerBound("game", "black.ratings.overall.rating", float64(2000))
+	if err != nil {
+		panic(err)
+	}
+	for obj := it.Next(); obj != nil; obj = it.Next() {
+		game := obj.(*websocket.Game)
+		logrus.WithFields(logrus.Fields{
+			"id":           game.ID,
+			"black_rating": game.Black.Ratings.Overall.Rating,
+			"black_name":   game.Black.Username,
+		}).Info("found player")
+	}
+
+	var stopChan = make(chan os.Signal, 2)
+	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+
+	<-stopChan // wait for SIGINT
 }
