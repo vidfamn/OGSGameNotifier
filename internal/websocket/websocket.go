@@ -12,17 +12,17 @@ import (
 )
 
 type OGSWebSocket struct {
-	Token  string
 	Client *gosocketio.Client
 
-	clockDrift   float64
-	clockLatency float64
+	ClockDrift   float64
+	ClockLatency float64
 
 	pingTicker *time.Ticker
 }
 
-func NewOGSWebSocket(token string) (*OGSWebSocket, error) {
+func NewOGSWebSocket() (*OGSWebSocket, error) {
 	waitForConnection := make(chan struct{}, 1)
+	defer close(waitForConnection)
 
 	c, err := gosocketio.Dial(
 		gosocketio.GetUrl("online-go.com", 443, true),
@@ -32,8 +32,7 @@ func NewOGSWebSocket(token string) (*OGSWebSocket, error) {
 		return nil, errors.New("could not connect websocket: " + err.Error())
 	}
 
-	ows := &OGSWebSocket{
-		Token:  token,
+	ogs := &OGSWebSocket{
 		Client: c,
 
 		pingTicker: time.NewTicker(25 * time.Second),
@@ -52,8 +51,13 @@ func NewOGSWebSocket(token string) (*OGSWebSocket, error) {
 			"id": c.Id(),
 		}).Debug("websocket disconnected")
 
-		if ows.pingTicker != nil {
-			ows.pingTicker.Stop()
+		if ogs.pingTicker != nil {
+			ogs.pingTicker.Stop()
+		}
+		select {
+		case <-waitForConnection:
+		default:
+			waitForConnection <- struct{}{}
 		}
 	})
 
@@ -63,8 +67,13 @@ func NewOGSWebSocket(token string) (*OGSWebSocket, error) {
 			"error": err,
 		}).Error("websocket error")
 
-		if ows.pingTicker != nil {
-			ows.pingTicker.Stop()
+		if ogs.pingTicker != nil {
+			ogs.pingTicker.Stop()
+		}
+		select {
+		case <-waitForConnection:
+		default:
+			waitForConnection <- struct{}{}
 		}
 	})
 
@@ -78,16 +87,16 @@ func NewOGSWebSocket(token string) (*OGSWebSocket, error) {
 		latencyMs := nowMs - msg.Client
 		driftMs := (nowMs - latencyMs/2) - msg.Server
 
-		ows.clockLatency = float64(latencyMs) / 1000
-		ows.clockDrift = float64(driftMs) / 1000
+		ogs.ClockLatency = float64(latencyMs) / 1000
+		ogs.ClockDrift = float64(driftMs) / 1000
 	})
 
 	go func() {
-		for range ows.pingTicker.C {
+		for range ogs.pingTicker.C {
 			msg := &PingRequest{
 				Client:  time.Now().UnixNano() / int64(time.Millisecond),
-				Drift:   ows.clockDrift,
-				Latency: ows.clockLatency,
+				Drift:   ogs.ClockDrift,
+				Latency: ogs.ClockLatency,
 			}
 
 			logrus.WithFields(logrus.Fields{
@@ -104,16 +113,17 @@ func NewOGSWebSocket(token string) (*OGSWebSocket, error) {
 
 	<-waitForConnection
 
-	return ows, nil
+	return ogs, nil
 }
 
-func (ows *OGSWebSocket) GameListRequest(msg *GameListQueryRequest, timeout time.Duration) (*GameListQueryResponse, error) {
+// GameListRequest fetches the game list from the websocket.
+func (ogs *OGSWebSocket) GameListRequest(msg *GameListQueryRequest, timeout time.Duration) (*GameListQueryResponse, error) {
 	logrus.WithFields(logrus.Fields{
 		"method":  "gamelist/query",
 		"message": fmt.Sprintf("%+v", msg),
 	}).Debug("sending message")
 
-	resp, err := ows.Client.Ack("gamelist/query", msg, timeout)
+	resp, err := ogs.Client.Ack("gamelist/query", msg, timeout)
 	if err != nil {
 		return nil, errors.New("could not send message: " + err.Error())
 	}
@@ -130,17 +140,3 @@ func (ows *OGSWebSocket) GameListRequest(msg *GameListQueryRequest, timeout time
 
 	return response, nil
 }
-
-// func (ows *OGSWebSocket) SendGameListCountSubscribe(ch *gosocketio.Channel) {
-// 	logrus.WithFields(logrus.Fields{
-// 		"method":  "gamelist/count/subscribe",
-// 		"message": "",
-// 	}).Debug("sending message")
-
-// 	if err := ch.Emit("gamelist/count/subscribe", ""); err != nil {
-// 		logrus.WithFields(logrus.Fields{
-// 			"method": "gamelist/count/subscribe",
-// 			"error":  err,
-// 		}).Error("could not send message")
-// 	}
-// }

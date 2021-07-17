@@ -5,8 +5,8 @@ import "github.com/hashicorp/go-memdb"
 func Schema() *memdb.DBSchema {
 	return &memdb.DBSchema{
 		Tables: map[string]*memdb.TableSchema{
-			"game": {
-				Name: "game",
+			"games": {
+				Name: "games",
 				Indexes: map[string]*memdb.IndexSchema{
 					"id": {
 						Name:         "id",
@@ -27,6 +27,12 @@ func Schema() *memdb.DBSchema {
 						AllowMissing: false,
 						Unique:       false,
 						Indexer:      &BlackOverallRatingIndexer{},
+					},
+					"median_rating": {
+						Name:         "median_rating",
+						AllowMissing: false,
+						Unique:       false,
+						Indexer:      &MedianRatingIndexer{},
 					},
 				},
 			},

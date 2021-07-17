@@ -1,17 +1,6 @@
 package websocket
 
-// Events
-
-const (
-	GameListCountEvent string = "gamelist-count"
-)
-
 // Responses
-
-type GameListCountResponse struct {
-	Live           string `json:"live"`
-	Correspondence string `json:"correspondence"`
-}
 
 type PongResponse struct {
 	Client int64 `json:"client"`
@@ -50,6 +39,9 @@ type Game struct {
 	InMiddle     bool        `json:"in_middle"`
 	InEnd        bool        `json:"in_end"`
 	GroupIDsMap  interface{} `json:"group_ids_map"` // FIXME: Add proper type
+
+	// Calculated values
+	MedianRating float64 `json:"-"`
 }
 
 type Player struct {
