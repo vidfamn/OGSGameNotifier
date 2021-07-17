@@ -8,6 +8,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gen2brain/beeep"
+	"github.com/getlantern/systray"
+	"github.com/getlantern/systray/example/icon"
 	"github.com/hashicorp/go-memdb"
 	"github.com/vidfamn/OGSGameNotifier/internal/storage"
 	"github.com/vidfamn/OGSGameNotifier/internal/websocket"
@@ -19,11 +22,7 @@ var (
 	Application string = "OGSGameNotifier"
 
 	// Overridden at compile time on make build
-	Version           string = "dev"
-	OAuthClientID     string = "dev"
-	OAuthClientSecret string = "dev"
-
-	authorizationFile string = ".authorization"
+	Version string = "dev"
 )
 
 type Notifier struct {
@@ -84,31 +83,56 @@ func main() {
 		NotifyGames:     map[int64]*websocket.Game{},
 	}
 
+	notifier.updateGameList()
+	go notifier.pollingLoop()
+
+	systray.Run(onReady, onExit)
+}
+
+func onReady() {
+	systray.SetIcon(icon.Data)
+	systray.SetTitle("OGSGameNotifier")
+	systray.SetTooltip("Notifies on new high rated OGS games")
+	quit := systray.AddMenuItem("Quit", "Quit")
+
+	go func() {
+		<-quit.ClickedCh
+		systray.Quit()
+	}()
+}
+
+func onExit() {}
+
+func (n *Notifier) pollingLoop() {
 	var stopChan = make(chan os.Signal, 2)
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	pollingTicker := time.NewTicker(time.Second * 30)
 
-	notifier.updateGameList()
-
 	for {
 		select {
 		case <-pollingTicker.C:
-			notifier.updateGameList()
+			n.updateGameList()
 
 			// Notify new games
-			for _, game := range notifier.NotifyGames {
+			for _, game := range n.NotifyGames {
 				logrus.WithFields(logrus.Fields{
 					"id":   game.ID,
 					"game": gameStr(game),
-				}).Info("would notify game")
+				}).Info("sending notification")
+
+				err := beeep.Notify("OGS Game started", gameStr(game), "assets/notification_icon.png")
+				if err != nil {
+					logrus.WithError(err).Error("could not send notification")
+					continue
+				}
 			}
 
 			// Notifications sent, clear the list
-			notifier.NotifyGames = map[int64]*websocket.Game{}
+			n.NotifyGames = map[int64]*websocket.Game{}
 
 			// All games
-			txn := notifier.DB.Txn(false)
+			txn := n.DB.Txn(false)
 			it, err := txn.Get("games", "id")
 			if err != nil {
 				logrus.WithError(err).Error("could not get games from memdb")
@@ -130,6 +154,7 @@ func main() {
 
 		case <-stopChan:
 			pollingTicker.Stop()
+			systray.Quit()
 			return
 		}
 	}
@@ -225,9 +250,9 @@ func gameStr(game *websocket.Game) string {
 	return fmt.Sprintf(
 		"%v (%v) vs %v (%v): https://online-go.com/game/%v",
 		game.Black.Username,
-		game.Black.Ratings.Overall.Rating,
+		int32(game.Black.Ratings.Overall.Rating),
 		game.White.Username,
-		game.White.Ratings.Overall.Rating,
+		int32(game.White.Ratings.Overall.Rating),
 		game.ID,
 	)
 }
