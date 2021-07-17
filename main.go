@@ -23,6 +23,7 @@ var (
 
 	// Overridden at compile time on make build
 	Version string = "dev"
+	Build   string = "dev"
 )
 
 type Notifier struct {
@@ -38,26 +39,27 @@ type Notifier struct {
 
 func main() {
 	version := flag.Bool("version", false, "prints application version")
-	logLevel := flag.String("log-level", "warn", "log level: error, warn, info, debug")
+	logLevel := flag.String("log-level", "info", "log level: debug, error, warn, info")
 	flag.Parse()
 
 	logrus.SetFormatter(&logrus.TextFormatter{})
 
 	switch *logLevel {
-	case "error":
-		logrus.SetLevel(logrus.ErrorLevel)
-	case "info":
-		logrus.SetLevel(logrus.InfoLevel)
 	case "debug":
 		logrus.SetLevel(logrus.DebugLevel)
-	default:
+	case "error":
+		logrus.SetLevel(logrus.ErrorLevel)
+	case "warn":
 		logrus.SetLevel(logrus.WarnLevel)
+	default:
+		logrus.SetLevel(logrus.InfoLevel)
 	}
 
 	if *version {
 		logrus.WithFields(logrus.Fields{
-			Application: Application,
-			Version:     Version,
+			"application": Application,
+			"version":     Version,
+			"build":       Build,
 		}).Info("application info")
 		return
 	}

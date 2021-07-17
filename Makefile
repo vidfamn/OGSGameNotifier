@@ -2,12 +2,11 @@
 # github.com/vidfamn/OGSGameNotifier
 #
 
-include .env.dev
-export
-export VERSION=$(shell git rev-parse --short HEAD)
+VERSION=$(shell git rev-parse --short HEAD)
+BUILD_TIME=$(shell date +"%Y%m%d.%H%M%S")
 
 build: clean
-	go build -ldflags="-X 'main.Version=${VERSION}'" -o bin/OGSGameNotifier main.go
+	go build -ldflags="-X 'main.Version=${VERSION}' -X 'main.Build=${BUILD_TIME}'" -o bin/OGSGameNotifier main.go
 
 clean:
 	-rm -rf bin
