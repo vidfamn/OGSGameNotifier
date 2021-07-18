@@ -31,6 +31,7 @@ var (
 	Build   string = "dev"
 
 	SettingsFile string = ".settings"
+	LogFile      string = "errors.log"
 )
 
 type Settings struct {
@@ -53,7 +54,18 @@ func main() {
 	logLevel := flag.String("log-level", "info", "log level: debug, error, warn, info")
 	flag.Parse()
 
-	logrus.SetFormatter(&logrus.TextFormatter{})
+	// Checks if TTY is detected, if not logs will be written to LogFile
+	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
+		logrus.SetFormatter(&logrus.TextFormatter{})
+	} else {
+		logrus.SetFormatter(&logrus.JSONFormatter{})
+		f, err := os.Create(LogFile)
+		if err != nil {
+			logrus.Panic(err)
+		}
+		defer f.Close()
+		logrus.SetOutput(f)
+	}
 
 	switch *logLevel {
 	case "debug":
@@ -77,13 +89,13 @@ func main() {
 
 	ogs, err := websocket.NewOGSWebSocket()
 	if err != nil {
-		logrus.Error(err)
+		logrus.Panic(err)
 		return
 	}
 
 	db, err := memdb.NewMemDB(storage.Schema())
 	if err != nil {
-		logrus.Error(err)
+		logrus.Panic(err)
 		return
 	}
 
@@ -91,9 +103,9 @@ func main() {
 		OGS: ogs,
 		DB:  db,
 		Settings: Settings{
-			ProGames:        false,
+			ProGames:        true,
 			BotGames:        false,
-			MinMedianRating: 2300,
+			MinMedianRating: 2300, // ~5d
 			BoardSize:       19,
 		},
 		NotifyGames: map[int64]*websocket.Game{},
@@ -111,8 +123,8 @@ func main() {
 func onReady(notifier *Notifier) func() {
 	return func() {
 		systray.SetIcon(icon.Data)
-		systray.SetTitle(fmt.Sprintf("OGSGameNotifier (%.f)", notifier.Settings.MinMedianRating))
-		systray.SetTooltip(fmt.Sprintf("OGSGameNotifier (%.f)", notifier.Settings.MinMedianRating))
+		systray.SetTitle("OGSGameNotifier")
+		systray.SetTooltip("OGSGameNotifier")
 
 		settings := systray.AddMenuItem("Settings", "Settings")
 		go func() {
@@ -142,7 +154,32 @@ func onReady(notifier *Notifier) func() {
 			}
 		}()
 
+		proGames := systray.AddMenuItemCheckbox("Pro games", "Pro games", true)
+		if notifier.Settings.ProGames {
+			proGames.Check()
+		}
+
+		go func() {
+			for {
+				<-proGames.ClickedCh
+				if proGames.Checked() {
+					proGames.Uncheck()
+				} else {
+					proGames.Check()
+				}
+
+				notifier.Settings.ProGames = proGames.Checked()
+				if err := notifier.saveSettings(); err != nil {
+					logrus.Panic(err)
+				}
+			}
+		}()
+
 		botGames := systray.AddMenuItemCheckbox("Bot games", "Bot games", false)
+		if notifier.Settings.BotGames {
+			botGames.Check()
+		}
+
 		go func() {
 			for {
 				<-botGames.ClickedCh
@@ -206,7 +243,7 @@ func (n *Notifier) loadSettings() error {
 	defer f.Close()
 
 	if err := json.NewDecoder(f).Decode(&n.Settings); err != nil {
-		return errors.New("could not unmarshal settings file: " + err.Error())
+		return errors.New("could not unmarshal settings: " + err.Error())
 	}
 
 	return nil
@@ -217,7 +254,6 @@ func (n *Notifier) pollingLoop() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	pollingTicker := time.NewTicker(time.Second * 30)
-
 	for {
 		select {
 		case <-pollingTicker.C:
@@ -228,7 +264,7 @@ func (n *Notifier) pollingLoop() {
 				logrus.WithFields(logrus.Fields{
 					"id":   game.ID,
 					"game": gameStr(game),
-				}).Info("sending notification")
+				}).Debug("sending notification")
 
 				err := beeep.Notify(
 					fmt.Sprintf("OGS Game started (%v)", ratingToRank(game.MedianRating)),
@@ -261,6 +297,7 @@ func (n *Notifier) pollingLoop() {
 			}
 
 		case <-stopChan:
+			n.OGS.Close()
 			pollingTicker.Stop()
 			systray.Quit()
 			return
@@ -277,7 +314,7 @@ func (n *Notifier) updateGameList() {
 		},
 		From:  0,
 		Limit: 100,
-	}, time.Second*30)
+	}, time.Second*5)
 	if err != nil {
 		logrus.Error(err)
 		return
@@ -297,14 +334,18 @@ func (n *Notifier) updateGameList() {
 	}).Debug("deleted games from memdb")
 
 	for _, game := range gameListResponse.Results {
-		if !n.Settings.BotGames && game.BotGame {
-			continue
-		}
 		if game.Width != n.Settings.BoardSize {
 			continue
 		}
+		if !n.Settings.BotGames && game.BotGame {
+			continue
+		}
 
-		game.MedianRating = (game.White.Ratings.Overall.Rating + game.Black.Ratings.Overall.Rating) / 2
+		if n.Settings.ProGames && (game.Black.Professional || game.White.Professional) {
+			game.MedianRating = 2400
+		} else {
+			game.MedianRating = (game.White.Ratings.Overall.Rating + game.Black.Ratings.Overall.Rating) / 2
+		}
 
 		if game.MedianRating < n.Settings.MinMedianRating {
 			continue
@@ -357,12 +398,22 @@ func (n *Notifier) updateGameList() {
 }
 
 func gameStr(game *websocket.Game) string {
+	blackRating := strconv.FormatInt(int64(game.Black.Ratings.Overall.Rating), 10)
+	if game.Black.Professional {
+		blackRating = "pro"
+	}
+
+	whiteRating := strconv.FormatInt(int64(game.White.Ratings.Overall.Rating), 10)
+	if game.White.Professional {
+		whiteRating = "pro"
+	}
+
 	return fmt.Sprintf(
 		"%v (%v) vs %v (%v): https://online-go.com/game/%v",
 		game.Black.Username,
-		int32(game.Black.Ratings.Overall.Rating),
+		blackRating,
 		game.White.Username,
-		int32(game.White.Ratings.Overall.Rating),
+		whiteRating,
 		game.ID,
 	)
 }

@@ -19,9 +19,9 @@ type GameListQueryResponse struct {
 
 type Game struct {
 	ID           int64       `json:"id"`
-	GroupIDs     []int64     `json:"group_ids"`
-	Phase        string      `json:"phase"` // play
-	Name         string      `json:"name"`  // fast
+	GroupIDs     interface{} `json:"group_ids"` // FIXME: Add proper type
+	Phase        string      `json:"phase"`     // play
+	Name         string      `json:"name"`      // fast
 	PlayerToMove int64       `json:"player_to_move"`
 	Width        int         `json:"width"`  // 19
 	Height       int         `json:"height"` // 19

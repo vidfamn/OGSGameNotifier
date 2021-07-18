@@ -1,25 +1,29 @@
 
 # OGSGameNotifier
 
-System tray application that notifies you when high rated dan games on
-http://www.online-go.com/ occurs. Created because I like to watch high
-quality games of Go and develop applications in Go.
+System tray application that notifies you when high rated ranked dan
+games on https://www.online-go.com/ occurs. Created because I like to
+watch high quality games of Go and develop applications in Go.
 
 # Features
 
 Example notification under Linux Mint 20.1 Cinnamon:
 ![Example notification](assets/example_notification.png "Example notification")
 
-* Systemtray app with settings
-* OS specific notifications
+* Systemtray app with adjustable min median dan rating
+* OS native notifications
 * Prebuilt binaries for Windows and Linux
 
 ## TODO
 
 * Unit tests
-* Reconnect websocket on disconnection (network errors)
-* Notifications for pro games
-* Blacklist players
+* Optional discord announcement
+* Blacklist players from notifications
+* Remove the websocket dependency and rewrite using the stdlib
+  * Tracability for message and socket errors
+  * We have our own ping messages, don't need 2
+  * Alive-method seems to be bugged at times (mutex locked)
+* MacOS builds
 
 # Install
 
@@ -27,13 +31,14 @@ Prebuilt binaries for Windows and Linux are found under releases.
 
 # Build from source
 
-Built with go version go1.13.8 linux/amd64 on Linux Mint 20.1 Cinnamon,
-anything else is untested and may require more steps from the dependency list below.
+Built and tested with go version go1.13.8 linux/amd64 on Linux Mint 20.1
+Cinnamon, anything else is untested and may require additional steps
+from the dependency list below.
 
 ## Requirements
 
 * Go (version>=1.13.8) https://golang.org/doc/install
-* systray: `sudo apt-get install gcc libgtk-3-dev libappindicator3-dev libxapp-dev`
+* systray deps: `sudo apt-get install gcc libgtk-3-dev libappindicator3-dev libxapp-dev`
 
 ## Steps
 
@@ -42,19 +47,24 @@ anything else is untested and may require more steps from the dependency list be
 > cd OGSGameNotifier
 > make build
 ```
+
 On success, binaries will be found in the `bin`-directory.
 
 # Dependencies
 
 * https://github.com/gen2brain/beeep
+* https://github.com/gen2brain/dlgs
 * https://github.com/getlantern/systray
 * https://github.com/hashicorp/go-memdb
 * https://github.com/ambelovsky/gosf-socketio
+* https://github.com/cenkalti/backoff/v4
 
 # Helpful resources
 
 Since OGS does not have any proper documentation, I had to reverse
-engineer some parts. I also found the following resources helpful:
+engineer some parts. Could probably be done in a better way but without
+API documentation it's hard to know what's possible and how it works.
+I found the following resources helpful:
 
 * https://github.com/dylanross620/Rengo-Bot
 * https://github.com/flovo/ogs_api
