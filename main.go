@@ -1,20 +1,25 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/gen2brain/beeep"
-	"github.com/getlantern/systray"
-	"github.com/getlantern/systray/example/icon"
-	"github.com/hashicorp/go-memdb"
+	icon "github.com/vidfamn/OGSGameNotifier/assets"
 	"github.com/vidfamn/OGSGameNotifier/internal/storage"
 	"github.com/vidfamn/OGSGameNotifier/internal/websocket"
 
+	"github.com/gen2brain/beeep"
+	"github.com/gen2brain/dlgs"
+	"github.com/getlantern/systray"
+	"github.com/hashicorp/go-memdb"
 	"github.com/sirupsen/logrus"
 )
 
@@ -24,15 +29,21 @@ var (
 	// Overridden at compile time on make build
 	Version string = "dev"
 	Build   string = "dev"
+
+	SettingsFile string = ".settings"
 )
 
-type Notifier struct {
-	OGS *websocket.OGSWebSocket
-	DB  *memdb.MemDB
+type Settings struct {
+	ProGames        bool    `json:"pro_games"`
+	BotGames        bool    `json:"bot_games"`
+	MinMedianRating float64 `json:"min_median_rating"`
+	BoardSize       int     `json:"board_size"`
+}
 
-	BotGames        bool
-	MinMedianRating float64
-	BoardSize       int
+type Notifier struct {
+	OGS      *websocket.OGSWebSocket
+	DB       *memdb.MemDB
+	Settings Settings
 
 	NotifyGames map[int64]*websocket.Game
 }
@@ -77,33 +88,129 @@ func main() {
 	}
 
 	notifier := &Notifier{
-		OGS:             ogs,
-		DB:              db,
-		BotGames:        false,
-		MinMedianRating: 2100,
-		BoardSize:       19,
-		NotifyGames:     map[int64]*websocket.Game{},
+		OGS: ogs,
+		DB:  db,
+		Settings: Settings{
+			ProGames:        false,
+			BotGames:        false,
+			MinMedianRating: 2300,
+			BoardSize:       19,
+		},
+		NotifyGames: map[int64]*websocket.Game{},
 	}
 
-	notifier.updateGameList()
+	if err := notifier.loadSettings(); err != nil {
+		logrus.Panic(err)
+	}
+
 	go notifier.pollingLoop()
 
-	systray.Run(onReady, onExit)
+	systray.Run(onReady(notifier), onExit)
 }
 
-func onReady() {
-	systray.SetIcon(icon.Data)
-	systray.SetTitle("OGSGameNotifier")
-	systray.SetTooltip("Notifies on new high rated OGS games")
-	quit := systray.AddMenuItem("Quit", "Quit")
+func onReady(notifier *Notifier) func() {
+	return func() {
+		systray.SetIcon(icon.Data)
+		systray.SetTitle(fmt.Sprintf("OGSGameNotifier (%.f)", notifier.Settings.MinMedianRating))
+		systray.SetTooltip(fmt.Sprintf("OGSGameNotifier (%.f)", notifier.Settings.MinMedianRating))
 
-	go func() {
-		<-quit.ClickedCh
-		systray.Quit()
-	}()
+		settings := systray.AddMenuItem("Settings", "Settings")
+		go func() {
+			for {
+				<-settings.ClickedCh
+
+				// Approximate rating to rank
+				selectedRating, ok, err := dlgs.List("Settings", "Game min median rating:", []string{
+					"1900 ~1d", "2000 ~2d", "2100 ~3d", "2200 ~4d", "2300 ~5d", "2400 ~6d", "2500 ~7d", "2600 ~8d", "2700 ~9d",
+				})
+				if err != nil {
+					logrus.Panic(err)
+				}
+				if selectedRating == "" || !ok {
+					continue
+				}
+
+				minRating, err := strconv.ParseFloat(selectedRating[:4], 64)
+				if err != nil {
+					logrus.Panic(err)
+				}
+
+				notifier.Settings.MinMedianRating = minRating
+				if err := notifier.saveSettings(); err != nil {
+					logrus.Panic(err)
+				}
+			}
+		}()
+
+		botGames := systray.AddMenuItemCheckbox("Bot games", "Bot games", false)
+		go func() {
+			for {
+				<-botGames.ClickedCh
+				if botGames.Checked() {
+					botGames.Uncheck()
+				} else {
+					botGames.Check()
+				}
+
+				notifier.Settings.BotGames = botGames.Checked()
+				if err := notifier.saveSettings(); err != nil {
+					logrus.Panic(err)
+				}
+			}
+		}()
+
+		systray.AddSeparator()
+
+		quit := systray.AddMenuItem("Quit", "Quit")
+		go func() {
+			<-quit.ClickedCh
+			systray.Quit()
+		}()
+	}
 }
 
 func onExit() {}
+
+func (n *Notifier) saveSettings() error {
+	b, _ := json.Marshal(n.Settings)
+
+	if err := ioutil.WriteFile(SettingsFile, b, 0644); err != nil {
+		return errors.New("could not write settings file: " + err.Error())
+	}
+
+	return nil
+}
+
+func (n *Notifier) loadSettings() error {
+	// Create a new settings file with current settings if does not exist
+	if _, err := os.Stat(SettingsFile); os.IsNotExist(err) {
+		f, err := os.Create(SettingsFile)
+		if err != nil {
+			return errors.New("could not create settings file: " + err.Error())
+		}
+		defer f.Close()
+
+		b, _ := json.Marshal(n.Settings)
+		if _, err = f.Write(b); err != nil {
+			return errors.New("could not write settings file: " + err.Error())
+		}
+
+		return nil
+	}
+
+	// Read and apply stored settings from settings file
+	f, err := os.Open(SettingsFile)
+	if err != nil {
+		return errors.New("could not open settings file: " + err.Error())
+	}
+	defer f.Close()
+
+	if err := json.NewDecoder(f).Decode(&n.Settings); err != nil {
+		return errors.New("could not unmarshal settings file: " + err.Error())
+	}
+
+	return nil
+}
 
 func (n *Notifier) pollingLoop() {
 	var stopChan = make(chan os.Signal, 2)
@@ -123,7 +230,11 @@ func (n *Notifier) pollingLoop() {
 					"game": gameStr(game),
 				}).Info("sending notification")
 
-				err := beeep.Notify("OGS Game started", gameStr(game), "assets/notification_icon.png")
+				err := beeep.Notify(
+					fmt.Sprintf("OGS Game started (%v)", ratingToRank(game.MedianRating)),
+					gameStr(game),
+					"assets/notification_icon.png",
+				)
 				if err != nil {
 					logrus.WithError(err).Error("could not send notification")
 					continue
@@ -133,7 +244,7 @@ func (n *Notifier) pollingLoop() {
 			// Notifications sent, clear the list
 			n.NotifyGames = map[int64]*websocket.Game{}
 
-			// All games
+			// All active games
 			txn := n.DB.Txn(false)
 			it, err := txn.Get("games", "id")
 			if err != nil {
@@ -142,16 +253,11 @@ func (n *Notifier) pollingLoop() {
 			}
 
 			for obj := it.Next(); obj != nil; obj = it.Next() {
-				game, ok := obj.(*websocket.Game)
+				_, ok := obj.(*websocket.Game)
 				if !ok {
 					logrus.Error("expected *websocket.Game")
 					continue
 				}
-
-				logrus.WithFields(logrus.Fields{
-					"id":   game.ID,
-					"game": gameStr(game),
-				}).Info("found matching game")
 			}
 
 		case <-stopChan:
@@ -166,9 +272,11 @@ func (n *Notifier) updateGameList() {
 	gameListResponse, err := n.OGS.GameListRequest(&websocket.GameListQueryRequest{
 		List:   "live",
 		SortBy: "rank",
-		Where:  map[string]interface{}{},
-		From:   0,
-		Limit:  100,
+		Where: map[string]interface{}{
+			"width": n.Settings.BoardSize,
+		},
+		From:  0,
+		Limit: 100,
 	}, time.Second*30)
 	if err != nil {
 		logrus.Error(err)
@@ -189,16 +297,16 @@ func (n *Notifier) updateGameList() {
 	}).Debug("deleted games from memdb")
 
 	for _, game := range gameListResponse.Results {
-		if !n.BotGames && game.BotGame {
+		if !n.Settings.BotGames && game.BotGame {
 			continue
 		}
-		if game.Width != n.BoardSize {
+		if game.Width != n.Settings.BoardSize {
 			continue
 		}
 
 		game.MedianRating = (game.White.Ratings.Overall.Rating + game.Black.Ratings.Overall.Rating) / 2
 
-		if game.MedianRating < n.MinMedianRating {
+		if game.MedianRating < n.Settings.MinMedianRating {
 			continue
 		}
 
@@ -257,4 +365,9 @@ func gameStr(game *websocket.Game) string {
 		int32(game.White.Ratings.Overall.Rating),
 		game.ID,
 	)
+}
+
+func ratingToRank(rating float64) string {
+	r := int((rating-1800)/100 + float64(0.5))
+	return fmt.Sprintf("~%vd", r)
 }
