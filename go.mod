@@ -4,7 +4,6 @@ go 1.13
 
 require (
 	github.com/ambelovsky/gosf-socketio v0.0.0-20201109193639-add9d32f8b19
-	github.com/cenkalti/backoff/v4 v4.1.1
 	github.com/gen2brain/beeep v0.0.0-20210529141713-5586760f0cc1
 	github.com/gen2brain/dlgs v0.0.0-20210609125024-bf6c92aaa984
 	github.com/getlantern/systray v1.1.0
