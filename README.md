@@ -57,7 +57,6 @@ On success, binaries will be found in the `bin`-directory.
 * https://github.com/getlantern/systray
 * https://github.com/hashicorp/go-memdb
 * https://github.com/ambelovsky/gosf-socketio
-* https://github.com/cenkalti/backoff/v4
 
 # Helpful resources
 

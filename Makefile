@@ -2,7 +2,7 @@
 # github.com/vidfamn/OGSGameNotifier
 #
 
-VERSION="v0.1-$(shell git rev-parse --short HEAD)"
+VERSION="v0.1.1-$(shell git rev-parse --short HEAD)"
 BUILD_TIME=$(shell date +"%Y%m%d.%H%M%S")
 
 build: clean

@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
@@ -54,17 +55,19 @@ func main() {
 	logLevel := flag.String("log-level", "info", "log level: debug, error, warn, info")
 	flag.Parse()
 
-	// Checks if TTY is detected, if not logs will be written to LogFile
-	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
-		logrus.SetFormatter(&logrus.TextFormatter{})
-	} else {
-		logrus.SetFormatter(&logrus.JSONFormatter{})
-		f, err := os.Create(LogFile)
+	logrus.SetFormatter(&logrus.TextFormatter{})
+
+	// Log to file on windows
+	if runtime.GOOS == "windows" {
+		f, err := os.OpenFile(LogFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
-			logrus.Panic(err)
+			logrus.WithError(err).Error("could not create logfile")
+		} else {
+			defer f.Close()
+
+			logrus.SetFormatter(&logrus.JSONFormatter{})
+			logrus.SetOutput(f)
 		}
-		defer f.Close()
-		logrus.SetOutput(f)
 	}
 
 	switch *logLevel {
