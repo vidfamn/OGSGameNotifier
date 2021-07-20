@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -215,7 +214,7 @@ func (n *Notifier) saveSettings() error {
 	b, _ := json.Marshal(n.Settings)
 
 	if err := ioutil.WriteFile(SettingsFile, b, 0644); err != nil {
-		return errors.New("could not write settings file: " + err.Error())
+		return fmt.Errorf("could not write settings file: %w", err)
 	}
 
 	return nil
@@ -226,13 +225,13 @@ func (n *Notifier) loadSettings() error {
 	if _, err := os.Stat(SettingsFile); os.IsNotExist(err) {
 		f, err := os.Create(SettingsFile)
 		if err != nil {
-			return errors.New("could not create settings file: " + err.Error())
+			return fmt.Errorf("could not create settings file: %w", err)
 		}
 		defer f.Close()
 
 		b, _ := json.Marshal(n.Settings)
 		if _, err = f.Write(b); err != nil {
-			return errors.New("could not write settings file: " + err.Error())
+			return fmt.Errorf("could not write settings file: %w", err)
 		}
 
 		return nil
@@ -241,12 +240,12 @@ func (n *Notifier) loadSettings() error {
 	// Read and apply stored settings from settings file
 	f, err := os.Open(SettingsFile)
 	if err != nil {
-		return errors.New("could not open settings file: " + err.Error())
+		return fmt.Errorf("could not open settings file: %w", err)
 	}
 	defer f.Close()
 
 	if err := json.NewDecoder(f).Decode(&n.Settings); err != nil {
-		return errors.New("could not unmarshal settings: " + err.Error())
+		return fmt.Errorf("could not unmarshal settings: %w", err)
 	}
 
 	return nil
@@ -313,7 +312,8 @@ func (n *Notifier) updateGameList() {
 		List:   "live",
 		SortBy: "rank",
 		Where: map[string]interface{}{
-			"width": n.Settings.BoardSize,
+			"width":  n.Settings.BoardSize,
+			"ranked": true,
 		},
 		From:  0,
 		Limit: 100,
