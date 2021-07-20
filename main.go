@@ -146,12 +146,14 @@ func onReady(notifier *Notifier) func() {
 
 				minRating, err := strconv.ParseFloat(selectedRating[:4], 64)
 				if err != nil {
-					logrus.Panic(err)
+					dlgs.Error("Could not apply settings", err.Error())
+					continue
 				}
 
 				notifier.Settings.MinMedianRating = minRating
 				if err := notifier.saveSettings(); err != nil {
-					logrus.Panic(err)
+					dlgs.Error("Could not save settings", err.Error())
+					continue
 				}
 			}
 		}()
@@ -172,7 +174,8 @@ func onReady(notifier *Notifier) func() {
 
 				notifier.Settings.ProGames = proGames.Checked()
 				if err := notifier.saveSettings(); err != nil {
-					logrus.Panic(err)
+					dlgs.Error("Could not save settings", err.Error())
+					continue
 				}
 			}
 		}()
@@ -193,7 +196,8 @@ func onReady(notifier *Notifier) func() {
 
 				notifier.Settings.BotGames = botGames.Checked()
 				if err := notifier.saveSettings(); err != nil {
-					logrus.Panic(err)
+					dlgs.Error("Could not save settings", err.Error())
+					continue
 				}
 			}
 		}()
@@ -309,18 +313,32 @@ func (n *Notifier) pollingLoop() {
 
 func (n *Notifier) updateGameList() {
 	gameListResponse, err := n.OGS.GameListRequest(&websocket.GameListQueryRequest{
-		List:   "live",
+		List: "live",
+		// NOTE: SortBy does not seem to work as intended from server, higher ranked games
+		// can occur lower down in the returned list.
 		SortBy: "rank",
+		// FIXME: This where-field does not seem to work, probably wrong format.
 		Where: map[string]interface{}{
-			"width":  n.Settings.BoardSize,
-			"ranked": true,
+			"width":        n.Settings.BoardSize,
+			"ranked":       true,
+			"in_beginning": true,
 		},
 		From:  0,
-		Limit: 100,
+		Limit: 1000,
 	}, time.Second*5)
 	if err != nil {
 		logrus.Error(err)
 		return
+	}
+
+	if gameListResponse.Size > gameListResponse.Limit {
+		logrus.WithFields(logrus.Fields{
+			"game_list_list":  gameListResponse.List,
+			"game_list_by":    gameListResponse.By,
+			"game_list_size":  gameListResponse.Size,
+			"game_list_from":  gameListResponse.From,
+			"game_list_limit": gameListResponse.Limit,
+		}).Warn("incomplete game list response")
 	}
 
 	txn := n.DB.Txn(true)
@@ -345,7 +363,7 @@ func (n *Notifier) updateGameList() {
 		}
 
 		if n.Settings.ProGames && (game.Black.Professional || game.White.Professional) {
-			game.MedianRating = 2400
+			game.MedianRating = 2400 // approximate lowest rating ~6d, according to www.goratings.org.
 		} else {
 			game.MedianRating = (game.White.Ratings.Overall.Rating + game.Black.Ratings.Overall.Rating) / 2
 		}
@@ -421,6 +439,8 @@ func gameStr(game *websocket.Game) string {
 	)
 }
 
+// ratingToRank is a simplified and approximate conversion of rating to
+// dan rank.
 func ratingToRank(rating float64) string {
 	r := int((rating-1800)/100 + float64(0.5))
 	return fmt.Sprintf("~%vd", r)

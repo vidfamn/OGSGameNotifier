@@ -223,8 +223,12 @@ func (ogs *OGSWebSocket) GameListRequest(msg *GameListQueryRequest, timeout time
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"method":        "gamelist/query",
-		"response_size": len(resp),
+		"method":          "gamelist/query",
+		"response_size":   len(resp),
+		"game_list_size":  response.Size,
+		"game_list_from":  response.From,
+		"game_list_limit": response.Limit,
+		"game_list_count": len(response.Results),
 	}).Debug("received message")
 
 	return response, nil
