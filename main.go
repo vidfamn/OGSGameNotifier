@@ -286,22 +286,6 @@ func (n *Notifier) pollingLoop() {
 			// Notifications sent, clear the list
 			n.NotifyGames = map[int64]*websocket.Game{}
 
-			// All active games
-			txn := n.DB.Txn(false)
-			it, err := txn.Get("games", "id")
-			if err != nil {
-				logrus.WithError(err).Error("could not get games from memdb")
-				continue
-			}
-
-			for obj := it.Next(); obj != nil; obj = it.Next() {
-				_, ok := obj.(*websocket.Game)
-				if !ok {
-					logrus.Error("expected *websocket.Game")
-					continue
-				}
-			}
-
 		case <-stopChan:
 			n.OGS.Close()
 			pollingTicker.Stop()
@@ -400,6 +384,7 @@ func (n *Notifier) updateGameList() {
 					"table":  c.Table,
 					"change": "created",
 				}).Warn("expected *websocket.Game")
+				continue
 			}
 
 			n.NotifyGames[game.ID] = game
