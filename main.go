@@ -425,8 +425,12 @@ func gameStr(game *websocket.Game) string {
 }
 
 // ratingToRank is a simplified and approximate conversion of rating to
-// dan rank.
+// rank.
 func ratingToRank(rating float64) string {
-	r := int((rating-1800)/100 + float64(0.5))
+	r := int((rating - 1800) / 100)
+	if r <= 0 {
+		return fmt.Sprintf("~%vk", (r-1)*-1)
+	}
+
 	return fmt.Sprintf("~%vd", r)
 }
