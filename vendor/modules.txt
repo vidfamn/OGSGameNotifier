@@ -1,3 +1,35 @@
+# github.com/ambelovsky/gosf-socketio v0.0.0-20201109193639-add9d32f8b19
+github.com/ambelovsky/gosf-socketio
+github.com/ambelovsky/gosf-socketio/protocol
+github.com/ambelovsky/gosf-socketio/transport
+# github.com/gen2brain/beeep v0.0.0-20210529141713-5586760f0cc1
+github.com/gen2brain/beeep
+# github.com/gen2brain/dlgs v0.0.0-20210609125024-bf6c92aaa984
+github.com/gen2brain/dlgs
+# github.com/getlantern/context v0.0.0-20190109183933-c447772a6520
+github.com/getlantern/context
+# github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7
+github.com/getlantern/errors
+# github.com/getlantern/golog v0.0.0-20190830074920-4ef2e798c2d7
+github.com/getlantern/golog
+# github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7
+github.com/getlantern/hex
+# github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55
+github.com/getlantern/hidden
+# github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f
+github.com/getlantern/ops
+# github.com/getlantern/systray v1.1.0
+github.com/getlantern/systray
+# github.com/go-stack/stack v1.8.0
+github.com/go-stack/stack
+# github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4
+github.com/go-toast/toast
+# github.com/godbus/dbus/v5 v5.0.4
+github.com/godbus/dbus/v5
+# github.com/gopherjs/gopherjs v0.0.0-20210707094841-eea289f08d45
+github.com/gopherjs/gopherjs/js
+# github.com/gopherjs/gopherwasm v1.1.0
+github.com/gopherjs/gopherwasm/js
 # github.com/gorilla/websocket v1.4.2
 github.com/gorilla/websocket
 # github.com/hashicorp/go-immutable-radix v1.3.0
@@ -6,9 +38,16 @@ github.com/hashicorp/go-immutable-radix
 github.com/hashicorp/go-memdb
 # github.com/hashicorp/golang-lru v0.5.4
 github.com/hashicorp/golang-lru/simplelru
+# github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d
+github.com/nu7hatch/gouuid
+# github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c
+github.com/oxtoacart/bpool
 # github.com/sirupsen/logrus v1.8.1
 github.com/sirupsen/logrus
-# golang.org/x/sys v0.0.0-20210423082822-04245dca01da
+# github.com/tadvi/systray v0.0.0-20190226123456-11a2b8fa57af
+github.com/tadvi/systray
+# golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
 golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
 golang.org/x/sys/windows
+golang.org/x/sys/windows/registry
