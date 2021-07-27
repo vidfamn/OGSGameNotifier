@@ -18,27 +18,27 @@ type GameListQueryResponse struct {
 }
 
 type Game struct {
-	ID           int64       `json:"id"`
-	GroupIDs     interface{} `json:"group_ids"` // FIXME: Add proper type
-	Phase        string      `json:"phase"`     // play
-	Name         string      `json:"name"`      // fast
-	PlayerToMove int64       `json:"player_to_move"`
-	Width        int         `json:"width"`  // 19
-	Height       int         `json:"height"` // 19
-	MoveNumber   int         `json:"move_number"`
-	Paused       int         `json:"paused"`
-	Private      bool        `json:"private"`
-	Black        *Player     `json:"black"`
-	White        *Player     `json:"white"`
-	TimePerMove  int         `json:"time_per_move"`
-	Ranked       bool        `json:"ranked"`
-	Handicap     int         `json:"handicap"`
-	Komi         float32     `json:"komi"`
-	BotGame      bool        `json:"bot_game"`
-	InBeginning  bool        `json:"in_beginning"`
-	InMiddle     bool        `json:"in_middle"`
-	InEnd        bool        `json:"in_end"`
-	GroupIDsMap  interface{} `json:"group_ids_map"` // FIXME: Add proper type
+	ID           int64           `json:"id"`
+	GroupIDs     []int64         `json:"group_ids"`
+	Phase        string          `json:"phase"` // play
+	Name         string          `json:"name"`
+	PlayerToMove int64           `json:"player_to_move"`
+	Width        int             `json:"width"`  // 19
+	Height       int             `json:"height"` // 19
+	MoveNumber   int             `json:"move_number"`
+	Paused       int             `json:"paused"`
+	Private      bool            `json:"private"`
+	Black        *Player         `json:"black"`
+	White        *Player         `json:"white"`
+	TimePerMove  int             `json:"time_per_move"`
+	Ranked       bool            `json:"ranked"`
+	Handicap     int             `json:"handicap"`
+	Komi         float32         `json:"komi"`
+	BotGame      bool            `json:"bot_game"`
+	InBeginning  bool            `json:"in_beginning"`
+	InMiddle     bool            `json:"in_middle"`
+	InEnd        bool            `json:"in_end"`
+	GroupIDsMap  map[string]bool `json:"group_ids_map"`
 
 	// Calculated values
 	MedianRating float64 `json:"-"`

@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -30,8 +31,9 @@ var (
 	Version string = "dev"
 	Build   string = "dev"
 
-	SettingsFile string = ".settings"
-	LogFile      string = "errors.log"
+	SettingsFile     string = binDirPath(".settings")
+	LogFile          string = binDirPath("errors.log")
+	NotificationIcon string = binDirPath("assets/notification_icon.png")
 )
 
 type Settings struct {
@@ -47,6 +49,16 @@ type Notifier struct {
 	Settings Settings
 
 	NotifyGames map[int64]*websocket.Game
+}
+
+func binDirPath(relativePath string) string {
+	execPath, err := os.Executable()
+	if err != nil {
+		logrus.Warn("could not find executable binary path, using relative")
+		return relativePath
+	}
+
+	return filepath.Join(filepath.Dir(execPath), relativePath)
 }
 
 func main() {
@@ -275,7 +287,7 @@ func (n *Notifier) pollingLoop() {
 				err := beeep.Notify(
 					fmt.Sprintf("OGS Game started (%v)", ratingToRank(game.MedianRating)),
 					gameStr(game),
-					"assets/notification_icon.png",
+					NotificationIcon,
 				)
 				if err != nil {
 					logrus.WithError(err).Error("could not send notification")
