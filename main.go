@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -17,8 +16,14 @@ import (
 	"github.com/vidfamn/OGSGameNotifier/internal/storage"
 	"github.com/vidfamn/OGSGameNotifier/internal/websocket"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/data/binding"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
 	"github.com/gen2brain/beeep"
-	"github.com/gen2brain/dlgs"
 	"github.com/getlantern/systray"
 	"github.com/hashicorp/go-memdb"
 	"github.com/sirupsen/logrus"
@@ -31,8 +36,8 @@ var (
 	Version string = "dev"
 	Build   string = "dev"
 
-	SettingsFile     string = binDirPath(".settings")
-	LogFile          string = binDirPath("errors.log")
+	SettingsFile     string = configDirPath(".settings")
+	LogFile          string = configDirPath("errors.log")
 	NotificationIcon string = binDirPath("assets/notification_icon.png")
 )
 
@@ -40,6 +45,7 @@ type Settings struct {
 	ProGames        bool    `json:"pro_games"`
 	BotGames        bool    `json:"bot_games"`
 	MinMedianRating float64 `json:"min_median_rating"`
+	CustomMatchRE   string  `json:"custom_match_re"`
 	BoardSize       int     `json:"board_size"`
 }
 
@@ -49,16 +55,8 @@ type Notifier struct {
 	Settings Settings
 
 	NotifyGames map[int64]*websocket.Game
-}
 
-func binDirPath(relativePath string) string {
-	execPath, err := os.Executable()
-	if err != nil {
-		logrus.Warn("could not find executable binary path, using relative")
-		return relativePath
-	}
-
-	return filepath.Join(filepath.Dir(execPath), relativePath)
+	OpenWindow chan fyne.Window
 }
 
 func main() {
@@ -113,6 +111,8 @@ func main() {
 		return
 	}
 
+	openWindow := make(chan fyne.Window)
+
 	notifier := &Notifier{
 		OGS: ogs,
 		DB:  db,
@@ -123,6 +123,7 @@ func main() {
 			BoardSize:       19,
 		},
 		NotifyGames: map[int64]*websocket.Game{},
+		OpenWindow:  openWindow,
 	}
 
 	if err := notifier.loadSettings(); err != nil {
@@ -130,8 +131,32 @@ func main() {
 	}
 
 	go notifier.pollingLoop()
+	go systray.Run(onReady(notifier), onExit)
 
-	systray.Run(onReady(notifier), onExit)
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	fyneApp := app.New()
+	fyneApp.Settings().Theme().Font(fyne.TextStyle{
+		Monospace: true,
+	})
+
+	go func() {
+		for {
+			select {
+			case w := <-openWindow:
+				w.Show()
+				w.SetCloseIntercept(func() {
+					w.Hide()
+				})
+			case <-sigs:
+				fyneApp.Quit()
+				return
+			}
+		}
+	}()
+
+	fyneApp.Run()
 }
 
 func onReady(notifier *Notifier) func() {
@@ -145,72 +170,52 @@ func onReady(notifier *Notifier) func() {
 			for {
 				<-settings.ClickedCh
 
-				// Approximate rating to rank
-				selectedRating, ok, err := dlgs.List("Settings", "Game min median rating:", []string{
-					"1900 ~1d", "2000 ~2d", "2100 ~3d", "2200 ~4d", "2300 ~5d", "2400 ~6d", "2500 ~7d", "2600 ~8d", "2700 ~9d",
-				})
-				if err != nil {
-					logrus.Panic(err)
-				}
-				if selectedRating == "" || !ok {
-					continue
-				}
+				minMedianRatingBindStr := binding.BindString(new(string))
+				bf := binding.NewFloat()
+				bf.Set(float64(notifier.Settings.MinMedianRating))
+				bf.AddListener(binding.NewDataListener(func() {
+					v, _ := bf.Get()
+					notifier.Settings.MinMedianRating = v
+					minMedianRatingBindStr.Set(strconv.Itoa(int(notifier.Settings.MinMedianRating)) +
+						" " + ratingToRank(float64(notifier.Settings.MinMedianRating)))
+				}))
 
-				minRating, err := strconv.ParseFloat(selectedRating[:4], 64)
-				if err != nil {
-					dlgs.Error("Could not apply settings", err.Error())
-					continue
-				}
+				w := fyne.CurrentApp().NewWindow("Settings")
+				w.Resize(fyne.Size{Width: 300, Height: 300})
+				buttons := container.NewAdaptiveGrid(2,
+					widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
+						w.Hide()
+					}),
+					widget.NewButtonWithIcon("Save", theme.ConfirmIcon(), func() {
+						if err := notifier.saveSettings(); err != nil {
+							logrus.WithFields(logrus.Fields{
+								"error": err,
+							}).Error("could not save settings")
+							dialog.ShowError(err, w)
+						} else {
+							w.Hide()
+						}
+					}),
+				)
 
-				notifier.Settings.MinMedianRating = minRating
-				if err := notifier.saveSettings(); err != nil {
-					dlgs.Error("Could not save settings", err.Error())
-					continue
-				}
-			}
-		}()
-
-		proGames := systray.AddMenuItemCheckbox("Pro games", "Pro games", true)
-		if notifier.Settings.ProGames {
-			proGames.Check()
-		}
-
-		go func() {
-			for {
-				<-proGames.ClickedCh
-				if proGames.Checked() {
-					proGames.Uncheck()
-				} else {
-					proGames.Check()
-				}
-
-				notifier.Settings.ProGames = proGames.Checked()
-				if err := notifier.saveSettings(); err != nil {
-					dlgs.Error("Could not save settings", err.Error())
-					continue
-				}
-			}
-		}()
-
-		botGames := systray.AddMenuItemCheckbox("Bot games", "Bot games", false)
-		if notifier.Settings.BotGames {
-			botGames.Check()
-		}
-
-		go func() {
-			for {
-				<-botGames.ClickedCh
-				if botGames.Checked() {
-					botGames.Uncheck()
-				} else {
-					botGames.Check()
-				}
-
-				notifier.Settings.BotGames = botGames.Checked()
-				if err := notifier.saveSettings(); err != nil {
-					dlgs.Error("Could not save settings", err.Error())
-					continue
-				}
+				w.SetContent(container.NewBorder(nil, buttons, nil, nil,
+					container.NewAppTabs(
+						container.NewTabItem("OGS", container.NewVBox(
+							widget.NewLabel("Min median dan rating"),
+							widget.NewSliderWithData(1900, 2700, bf),
+							container.NewCenter(widget.NewLabelWithData(minMedianRatingBindStr)),
+							widget.NewSeparator(),
+							// widget.NewLabel("Custom match RegExp"),
+							// widget.NewEntryWithData(binding.BindString(&customMatchRE)),
+							widget.NewCheckWithData("Pro games", binding.BindBool(&notifier.Settings.ProGames)),
+							widget.NewCheckWithData("Bot games", binding.BindBool(&notifier.Settings.BotGames)),
+						)),
+						container.NewTabItem("IGS", container.NewVBox(
+							widget.NewLabel("TODO"),
+						)),
+					),
+				))
+				notifier.OpenWindow <- w
 			}
 		}()
 
@@ -220,6 +225,7 @@ func onReady(notifier *Notifier) func() {
 		go func() {
 			<-quit.ClickedCh
 			systray.Quit()
+			fyne.CurrentApp().Quit()
 		}()
 	}
 }
@@ -358,14 +364,14 @@ func (n *Notifier) updateGameList() {
 			continue
 		}
 
-		if n.Settings.ProGames && (game.Black.Professional || game.White.Professional) {
-			game.MedianRating = 2400 // approximate lowest rating ~6d, according to www.goratings.org.
+		if !n.Settings.ProGames && (game.Black.Professional || game.White.Professional) {
+			continue
 		} else {
 			game.MedianRating = (game.White.Ratings.Overall.Rating + game.Black.Ratings.Overall.Rating) / 2
-		}
 
-		if game.MedianRating < n.Settings.MinMedianRating {
-			continue
+			if game.MedianRating < n.Settings.MinMedianRating {
+				continue
+			}
 		}
 
 		if err := txn.Insert("games", game); err != nil {
@@ -380,6 +386,7 @@ func (n *Notifier) updateGameList() {
 				"white_rating":  game.White.Ratings.Overall.Rating,
 				"black_rating":  game.Black.Ratings.Overall.Rating,
 				"median_rating": game.MedianRating,
+				"pro_game":      game.Black.Professional || game.White.Professional,
 			}).Debug("stored in memdb")
 		}
 	}
