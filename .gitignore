@@ -1,4 +1,5 @@
 bin
+logs
 .env.dev
 .authorization
 .settings

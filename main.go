@@ -210,7 +210,7 @@ func onReady(notifier *Notifier) func() {
 							widget.NewCheckWithData("Pro games", binding.BindBool(&notifier.Settings.ProGames)),
 							widget.NewCheckWithData("Bot games", binding.BindBool(&notifier.Settings.BotGames)),
 						)),
-						container.NewTabItem("IGS", container.NewVBox(
+						container.NewTabItem("Other", container.NewVBox(
 							widget.NewLabel("TODO"),
 						)),
 					),
