@@ -211,7 +211,7 @@ func onReady(notifier *Notifier) func() {
 							widget.NewCheckWithData("Bot games", binding.BindBool(&notifier.Settings.BotGames)),
 						)),
 						container.NewTabItem("Other", container.NewVBox(
-							widget.NewLabel("TODO"),
+							widget.NewLabel("Not implemented"),
 						)),
 					),
 				))
@@ -282,27 +282,7 @@ func (n *Notifier) pollingLoop() {
 		select {
 		case <-pollingTicker.C:
 			n.updateGameList()
-
-			// Notify new games
-			for _, game := range n.NotifyGames {
-				logrus.WithFields(logrus.Fields{
-					"id":   game.ID,
-					"game": gameStr(game),
-				}).Debug("sending notification")
-
-				err := beeep.Notify(
-					fmt.Sprintf("OGS Game started (%v)", ratingToRank(game.MedianRating)),
-					gameStr(game),
-					NotificationIcon,
-				)
-				if err != nil {
-					logrus.WithError(err).Error("could not send notification")
-					continue
-				}
-			}
-
-			// Notifications sent, clear the list
-			n.NotifyGames = map[int64]*websocket.Game{}
+			n.notifyNewGames()
 
 		case <-stopChan:
 			n.OGS.Close()
@@ -311,6 +291,29 @@ func (n *Notifier) pollingLoop() {
 			return
 		}
 	}
+}
+
+func (n *Notifier) notifyNewGames() {
+	// Notify new games
+	for _, game := range n.NotifyGames {
+		logrus.WithFields(logrus.Fields{
+			"id":   game.ID,
+			"game": gameStr(game),
+		}).Debug("sending notification")
+
+		err := beeep.Notify(
+			fmt.Sprintf("OGS Game started (%v)", ratingToRank(game.MedianRating)),
+			gameStr(game),
+			NotificationIcon,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("could not send notification")
+			continue
+		}
+	}
+
+	// Notifications sent, clear the list
+	n.NotifyGames = map[int64]*websocket.Game{}
 }
 
 func (n *Notifier) updateGameList() {
