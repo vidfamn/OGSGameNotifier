@@ -17,13 +17,11 @@ Example notification under Linux Mint 20.1 Cinnamon:
 ## TODO
 
 * Unit tests
-* Optional discord announcement
 * Blacklist players from notifications
 * Remove the websocket dependency and rewrite using the stdlib
   * Tracability for message and socket errors
-  * We have our own ping messages, don't need 2
+  * Has built in ping message that we don't need, we have our own don't need 2
   * Alive-method seems to be bugged at times (mutex locked)
-* MacOS builds
 
 # Install
 
@@ -31,13 +29,13 @@ Prebuilt binaries for Windows and Linux are found under releases.
 
 # Build from source
 
-Built and tested with go version go1.13.8 linux/amd64 on Linux Mint 20.1
+Built and tested with go version go1.17 linux/amd64 on Linux Mint 20.1
 Cinnamon, anything else is untested and may require additional steps
 from the dependency list below.
 
 ## Requirements
 
-* Go (version>=1.13.8) https://golang.org/doc/install
+* Go (version>=1.17) https://golang.org/doc/install
 * systray deps: `sudo apt-get install gcc libgtk-3-dev libappindicator3-dev libxapp-dev`
 
 ## Steps
